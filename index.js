@@ -1,3 +1,4 @@
+
 const express=require('express');
 const app=express();
 const mongoose=require('mongoose');
@@ -30,7 +31,6 @@ app.use(methodOverride('_method'));
 const categories=['fruits','vegetables','dairy']
 
 app.get('/products',wrapAsync(async (req,res,next)=>{
-    try{
     const products=await Product.find({});
     // console.log(products);
     // res.send('ok!');
@@ -48,9 +48,6 @@ app.get('/products',wrapAsync(async (req,res,next)=>{
     }
     // console.log('This line also executes!!');
     // res.send('All products r here!!');
-   }catch(e){
-       next(e);
-   }
 }))
 
 //this one takes you to the forms
