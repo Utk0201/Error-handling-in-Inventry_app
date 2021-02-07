@@ -1,109 +1,142 @@
-const { query } = require('express');
 const express=require('express');
 const app=express();
-const morgan=require('morgan');
+const mongoose=require('mongoose');
+const methodOverride=require('method-override');
 const AppError=require('./AppError');
+// const morgan=require('morgan');
 
-// app.use(morgan('tiny'))    //telling express to use "morgan" middleware on every request
+//importing files from product.js in models directry
+const Product=require('./models/product');
 
-//we can also use different property other than "tiny"
-// app.use(morgan('common'));
+mongoose.connect('mongodb://localhost:27017/farmApp', {useNewUrlParser: true, useUnifiedTopology: true})
+.then(()=>{
+    console.log('MONGO CONNECTED');
+})
+.catch((e)=>{
+    console.log('MONGO Error!!');
+    console.log(e);
+})
 
-// app.use((req,res,next)=>{
-//     // res.send('Morgan ka kata!!');
-//     console.log('Morgan bach gya!!!');
-//     next();
-// })
+// app.set('views',path.join(_dirname,'views'));
+app.set('views','views');
+app.set('view engine','ejs');
+//requiring method override
 
-// app.use((req,res,next)=>{
-//     req.requestTimee=Date.now();    //defined a new property in request
-//     console.log(req.method.toUpperCase(),req.path);
-//     next();
-// })
 
-//below middleware runs only on path /dogs
-// app.use('/dog',(req,res,next)=>{
-//     console.log('I hate dogs');
-//     next();
-// })
+app.use(express.urlencoded({extended:true}))
+//using method override middleware
+app.use(methodOverride('_method'));
 
-//Below middleware applies to every route
-//However,if we want middleware for specific routes,a better
-//option is indicated below this middleware
-// app.use((req,res,next)=>{
-//     // console.log(req.query);
-//     const {passwd}=req.query;
-//     if(passwd==='Utkarsh'){
-//         next();
-//     }
-//     res.send('Please enter correct password!!');
-// })
+const categories=['fruits','vegetables','dairy']
 
-//better option
-const verify=(req,res,next)=>{
-    const {paswd}=req.query;
-    if(paswd==='Utkarsh'){
-        next(); //command executes below lines and 
-        //takes us back to app.get('/')
+app.get('/products',wrapAsync(async (req,res,next)=>{
+    try{
+    const products=await Product.find({});
+    // console.log(products);
+    // res.send('ok!');
+    const {category}=req.query;
+    if(category){
+        //check whether req.body works fine
+        const products=await Product.find({category})
+        // console.log(products);
+        res.render('products/index.ejs',{products,category});
     }
-    // res.status(401);    //sends status code of error
-    // res.send('Please enter the correct password!');
-    // throw new Error('Correct Password required');
-    throw new AppError(401,'Password required');
+    else{
+        const products=await Product.find({})
+        // console.log(products);
+        res.render('products/index.ejs',{products,category:'All'});
+    }
+    // console.log('This line also executes!!');
+    // res.send('All products r here!!');
+   }catch(e){
+       next(e);
+   }
+}))
+
+//this one takes you to the forms
+app.get('/products/new',wrapAsync((req,res)=>{
+    // throw new AppError(401,'Not allowed');
+    res.render('products/new',{categories});
+}))
+
+app.post('/products',wrapAsync(async (req,res)=>{
+    const newPrd=new Product(req.body);
+    await newPrd.save();  //This line takes time  so
+    //await it
+    res.redirect(`/products/${newPrd._id}`);
+}))
+
+//using below function to catch errors(if any) 
+//and pass it to next function
+function wrapAsync(fn){
+    return function(req,res,next){
+        fn(req,res,next).catch(e=> next(e));
+    }
 }
 
-//This callback function runs only if "verify" allows it to do so 
-app.get('/secret',verify,(req,res)=>{
-    res.send('Working fine');
-})
+//to look for unique products
+app.get('/products/:id',wrapAsync(async(req,res,next)=>{
+    const {id}=req.params;
+//req.body also works fine
+const fnd=await Product.findById(id);
+if(!fnd){
+    throw new AppError(404,'Product not found');
+    // return next(new AppError(404,'Product not found'));
+    //if we give error code 101 the above line doesn't work
+    // above line doesn't work in asynchronous functions
+    // so use next
+    // return next(new AppError(101,'Product not found'));
+}
+res.render('products/show',{fnd});
+// res.send('details page');
+}))
 
-app.get('/',(req,res)=>{
-    console.log(`Request time: ${req.requestTime}`);
-    res.send('Home page');
-})
 
-app.get('/dog',(req,res)=>{
-    // console.log(req.requestTimee);  //used the property that I defined earlier
-    res.send('Bhow Bhow!!');
-})
 
-app.get('/error',(req,res)=>{
-    chicken.fly();
-})
+//first,we have to extract the product
+app.get('/products/:id/edit',wrapAsync(async (req,res,next)=>{
+        const {id}=req.params;
+    const product=await Product.findById(id);
+    if(!product){
+        return next(new AppError(404,'Product not found'));
+        //if we give error code 101 the above line doesn't work
+        // above line doesn't work in asynchronous functions
+        // so use next
+        // return next(new AppError(101,'Product not found'));
+    }
+    res.render('products/edit',{product,categories});
 
-//below app.use is used after all other app.use functions
-//also,it should contain 4 arguments
-// app.use((err,req,res,next)=>{
-//     console.log("**********************");
-//     console.log("*********ERROR********");
-//     console.log("**********************");
-//     // res.status(500).send("We got an error!!");//if we don't write this line, server keeps on loading
-//     next(err); //if nothing is passed as argument in next
-//     //it calls next middleware automatically
-//     console.log(err);
-// })
+}))
+//updating product
+//in form,we can't directly make a put request
+//so, we have to use method override
+app.put('/products/:id',wrapAsync(async(req,res,next)=>{
+    const {id}=req.params; //shorter way of telling 
+    //Below line includes old info also
+    //so, we set new:true
+    // const changedProd=Product.findByIdAndUpdate(id,req.body,{runValidators:true});
+    const changedProd=await Product.findByIdAndUpdate(id,req.body,{runValidators:true,new: true});
+    //findByIdAndUpdate doesn't run validation by default
+    //so,we set it to true
+    res.redirect(`/products/${changedProd._id}`)
+    res.send('Put!!');
+}))
 
-app.get('/admin',(req,res)=>{
-    //this throws an error with a message and a value 
-    //to the AppError
-    throw new AppError(403,'you r not the admin!!');
-})
+//deleting products
+app.delete('/products/:id',wrapAsync(async (req,res)=>{
+    // res.send('you made it!');
+    const {id}=req.params;
+    const deletedProd= await Product.findByIdAndDelete(id);
+    res.redirect('/products');
+}))
 
+////////////////////////////////////////////////////////////////////
+//adding our customised error handling middleware
 app.use((err,req,res,next)=>{
-    // const {status=500}=err; //adding default value so that
-    //chicken undefined error passes some value
-    //normal error doesn't have status but since we're
-    //defining here, our error gets a value
-    // res.status(status).send("Shit!! error!!");
-    const {status=501,message='Got error!!'}=err;
+    const {status=500,message='Something wrong'}=err;
     res.status(status).send(message);
-    // throw new AppError(status,message);
+})
+app.listen(3000,function(){
+    console.log('App is listening on 3000');
 })
 
-// app.use((req,res)=>{
-//     res.status(404).send("Content not found"); //set status to 404 and then send
-// })
-
-app.listen(3000,()=>{
-    console.log('Listening @ 3k');
-})
